@@ -172,9 +172,13 @@ async function rebuildIndex() {
         }
     }
     await searchIndex.saveToDisk();
+    searchIndex.state = "ready";
 }
 // Fire and forget — server starts while index builds
-rebuildIndex().catch((err) => console.error("Index rebuild failed:", err));
+rebuildIndex().catch((err) => {
+    searchIndex.state = "failed";
+    console.error("Index rebuild failed:", err);
+});
 
 // --- Watch for external changes ---
 let fsWatcher: ReturnType<typeof watch> | null = null;
