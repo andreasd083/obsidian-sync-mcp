@@ -30,7 +30,15 @@ function decrypt(data: string, passphrase: string): string {
     return Buffer.concat([decipher.update(Buffer.from(encryptedHex, "hex")), decipher.final()]).toString("utf-8");
 }
 
+/**
+ * Lifecycle of the in-memory index. "building" from construction until the
+ * startup rebuild finishes, "ready" afterwards, "failed" if the rebuild threw.
+ * Read by list_notes so a client can tell a partial index from a complete one.
+ */
+export type IndexState = "building" | "ready" | "failed";
+
 export class SearchIndex {
+    private _state: IndexState = "building";
     private mtimes = new Map<string, number>();
     private tags = new Map<string, string[]>();
     private links = new Map<string, string[]>();
@@ -216,6 +224,15 @@ export class SearchIndex {
         const paths = Array.from(this.knownPaths);
         for (const p of paths) this.remove(p);
         this._since = "";
+        this._state = "building";
+    }
+
+    get state(): IndexState {
+        return this._state;
+    }
+
+    set state(value: IndexState) {
+        this._state = value;
     }
 
     get since(): string {

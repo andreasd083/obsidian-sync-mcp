@@ -142,7 +142,32 @@ describe("E2E: list_notes", () => {
 
     it("sorts by modified with limit", async () => {
         const text = await callTool("list_notes", { sort_by: "modified", limit: 2 });
-        assert.ok(text.includes("more"));
+        assert.ok(text.startsWith("Showing 2 of 3 notes"), text);
+    });
+
+    // Regression tests for #19: a client must be able to tell a truncated or
+    // filtered listing from a complete one, and a zero-hit filter must not
+    // claim the vault is empty.
+    it("starts with a status line that names what the limit cut", async () => {
+        const text = await callTool("list_notes", { limit: 2 });
+        const firstLine = text.split("\n")[0];
+        assert.ok(firstLine.startsWith("Showing 2 of 3 notes"), firstLine);
+        assert.ok(firstLine.includes("Omitted 1: (root) (1)"), firstLine);
+    });
+
+    it("states the total on a complete listing", async () => {
+        const text = await callTool("list_notes");
+        assert.equal(text.split("\n")[0], "3 notes (sorted by name).");
+    });
+
+    it("keeps the filter visible on a complete filtered listing", async () => {
+        const text = await callTool("list_notes", { tag: "intro" });
+        assert.equal(text.split("\n")[0], '1 note matches tag="intro" (vault has 3 notes, sorted by name).');
+    });
+
+    it("does not claim the vault is empty on a zero-hit filter", async () => {
+        const text = await callTool("list_notes", { name: "no-such-note" });
+        assert.equal(text, 'No notes match name="no-such-note" (vault has 3 notes).');
     });
 
     it("filters by tag", async () => {

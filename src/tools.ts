@@ -4,6 +4,7 @@ import { makeDeepLink } from "./deeplink.js";
 import type { VaultBackend } from "./vault-backend.js";
 import type { SearchIndex } from "./search.js";
 import { isPathWritable } from "./write-scope.js";
+import { describeListing, describeNoMatch } from "./list-format.js";
 
 const debugLogging = process.env.LOG_LEVEL === "debug";
 
@@ -108,39 +109,60 @@ export function registerTools(
         execute: async ({ folder, name, tag, sort_by, modified_after, limit }) => {
             // Use search index (works with encrypted vaults), fall back to vault
             let notes = searchIndex.listWithMtime(folder);
+            let vaultTotal: number | null = searchIndex.size;
+            let servedByVault = false;
             if (notes.length === 0) {
                 notes = await vault.listNotesWithMtime(folder);
+                servedByVault = notes.length > 0;
+                // The fallback only tells us the vault total when it was unscoped.
+                if (vaultTotal === 0) vaultTotal = folder ? null : notes.length;
             }
+            const folderTotal = folder ? notes.length : null;
+            const filters: string[] = [];
             if (name) {
                 const lower = name.toLowerCase();
                 notes = notes.filter((n) => n.path.toLowerCase().includes(lower));
+                filters.push(`name="${name}"`);
             }
             if (tag) {
                 notes = notes.filter((n) => searchIndex.getTags(n.path).includes(tag));
+                filters.push(`tag="${tag}"`);
             }
             if (modified_after) {
                 const cutoff = new Date(modified_after).getTime();
                 if (isNaN(cutoff)) return `Invalid date format: ${modified_after}. Use ISO format like '2026-03-25'.`;
                 notes = notes.filter((n) => n.mtime >= cutoff);
+                filters.push(`modified_after="${modified_after}"`);
             }
+            const index = { state: searchIndex.state, size: searchIndex.size, servedByVault };
             if (notes.length === 0) {
-                return folder ? `No notes found in folder: ${folder}` : "Vault is empty.";
+                return describeNoMatch({ vaultTotal, folder, folderTotal, filters, index });
             }
-            if (sort_by === "modified") {
+            const sortBy = sort_by === "modified" ? "modified" : "name";
+            if (sortBy === "modified") {
                 notes.sort((a, b) => b.mtime - a.mtime);
             }
             const cap = limit ?? 100;
             const total = notes.length;
             const capped = notes.slice(0, cap);
+            const header = describeListing({
+                shown: capped.length,
+                matched: total,
+                vaultTotal,
+                folder,
+                folderTotal,
+                filters,
+                sortBy,
+                limit: cap,
+                omitted: notes.slice(cap).map((n) => n.path),
+                index,
+            });
             const lines = capped.map((n) => {
                 const deepLink = makeDeepLink(vaultName, n.path);
                 const date = n.mtime ? new Date(n.mtime).toISOString().slice(0, 16) : "";
                 return `- ${date} [${n.path}](${deepLink})`;
             });
-            if (total > cap) {
-                lines.push(`\n... and ${total - cap} more. Use a folder filter or limit to narrow results.`);
-            }
-            return lines.join("\n");
+            return [header, ...lines].join("\n");
         },
     });
 
