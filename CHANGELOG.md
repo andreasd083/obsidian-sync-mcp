@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0
+
+### Features
+- `list_notes` responses now open with a status line so an LLM client can never mistake a truncated, filtered, or still-indexing listing for a complete one: total counts, active filters, and sort order come first, and truncated listings name the omitted folders with counts (e.g. `Omitted 106: work/ (41), recipes/ (9), ...`) instead of a trailing "... and N more" line that was easy to miss (#19). Contributed by @andreasd083.
+- The search index now exposes its lifecycle state (`building` / `ready` / `failed`), surfaced in `list_notes` responses so a short listing during startup catch-up is recognizable as partial rather than complete (#19). Contributed by @andreasd083.
+
+### Fixes
+- A zero-hit filtered query no longer claims "Vault is empty." — it now says what was tested, e.g. `No notes match name="x" (vault has 206 notes).` (#19). Contributed by @andreasd083.
+- Bump `fast-uri` to clear four high-severity advisories (SSRF and host-confusion variants); also picks up moderate fixes in `hono` and `fflate`.
+
+### Tests
+- New e2e regression tests send modern-protocol (revision 2026-07-28) requests, the class of traffic that broke silently in 0.6.4 (#18) — verified to fail against the broken dependency and pass on the fixed one.
+- New e2e coverage for the `list_notes` response shape: status line first, named omitted folders, filter visibility, and zero-hit wording.
+
 ## 0.6.5
 
 ### Fixes
