@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyStamp, parseStampConfig, todayIn, type StampConfig } from "./stamp.js";
+import { applyStamp, byErrorMessage, parseStampConfig, todayIn, type StampConfig } from "./stamp.js";
 
 const config: StampConfig = parseStampConfig(
     {
@@ -135,5 +135,16 @@ describe("applyStamp", () => {
         const r = applyStamp(P, same, same.replace("Body", "B2"), { by: "desktop", today, config });
         assert.equal(r.content, same.replace("Body", "B2"));
         assert.match(r.report, /^Stamped/);
+    });
+});
+
+describe("byErrorMessage", () => {
+    it("says what to send and that the schema may be outdated when by is missing", () => {
+        const m = byErrorMessage(["desktop", "code-vps"], undefined);
+        assert.match(m, /^Required: pass by = the surface that writes \(one of: desktop, code-vps\)\./);
+        assert.match(m, /tool list may be outdated/);
+    });
+    it("names the bad value and the valid ones", () => {
+        assert.equal(byErrorMessage(["desktop"], "nobody"), 'Unknown value "nobody": pass by = the surface that writes (one of: desktop).');
     });
 });

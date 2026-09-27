@@ -92,3 +92,12 @@ test("with STAMP_FIELDS, by is required and limited to the configured values", (
     const move = captureWith(stamp).find((t) => t.name === "move_note");
     assert.equal(move.parameters.shape.by, undefined, "move_note never stamps");
 });
+
+test("a missing or unknown by gives an error that says what to send", () => {
+    const stamp = { dateField: "senast_ändrad", byField: "senast_av", byValues: ["desktop", "code-vps"], folders: null, timeZone: "UTC" };
+    const tool = captureWith(stamp).find((t) => t.name === "write_note");
+    const missing = tool.parameters.safeParse({ path: "a.md", content: "x" });
+    assert.match(missing.error.issues[0].message, /^Required: pass by = the surface that writes \(one of: desktop, code-vps\)/);
+    const bad = tool.parameters.safeParse({ path: "a.md", content: "x", by: "nobody" });
+    assert.match(bad.error.issues[0].message, /^Unknown value "nobody"/);
+});

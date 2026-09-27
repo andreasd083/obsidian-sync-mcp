@@ -134,3 +134,16 @@ export function applyStamp(
     if (notes.length) parts.push((stamped.length ? "; " : "Not stamped: ") + notes.join(", ") + (notes.some((n) => n.startsWith(`kept ${config.byField}=`)) ? ` (by=${by})` : ""));
     return { content, report: parts.join("") + "." };
 }
+
+/**
+ * Error text for a missing or unknown `by`. A client that loaded the tool list before
+ * stamping was switched on may not show the parameter at all, so the message says what
+ * to send and that the client's schema may be outdated.
+ */
+export function byErrorMessage(values: string[] | null, received: unknown): string {
+    const list = values ? ` (one of: ${values.join(", ")})` : "";
+    if (received === undefined) {
+        return `Required: pass by = the surface that writes${list}. Your tool list may be outdated — the server requires this parameter even if your schema does not show it.`;
+    }
+    return `Unknown value ${JSON.stringify(received)}: pass by = the surface that writes${list}.`;
+}

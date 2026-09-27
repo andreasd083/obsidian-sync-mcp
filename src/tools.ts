@@ -6,7 +6,7 @@ import type { SearchIndex } from "./search.js";
 import { isPathWritable } from "./write-scope.js";
 import { describeListing, describeNoMatch } from "./list-format.js";
 import { describeHits, describeQuery, describeSync, type SyncStatus } from "./search-format.js";
-import { applyStamp, todayIn, type StampConfig } from "./stamp.js";
+import { applyStamp, byErrorMessage, todayIn, type StampConfig } from "./stamp.js";
 
 const debugLogging = process.env.LOG_LEVEL === "debug";
 
@@ -68,7 +68,10 @@ export function registerTools(
     // required on every content write, so a surface cannot forget to say who it is.
     const stampParams = stamp
         ? {
-              by: (stamp.byValues ? z.enum(stamp.byValues) : z.string().min(1)).describe(
+              by: (stamp.byValues
+                  ? z.enum(stamp.byValues, { errorMap: (_issue, ctx) => ({ message: byErrorMessage(stamp.byValues, ctx.data) }) })
+                  : z.string({ errorMap: (_issue, ctx) => ({ message: byErrorMessage(null, ctx.data) }) }).min(1)
+              ).describe(
                   `Who writes: the value set in ${stamp.byField}. Required.`,
               ),
               mechanical: z
