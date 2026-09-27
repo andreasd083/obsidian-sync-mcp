@@ -148,8 +148,15 @@ export class SearchIndex {
         }
     }
 
-    /** Add or update a note in the index. */
+    /**
+     * Add or update a note in the index. The watcher and the pre-search
+     * catch-up both write here without coordinating, so a write whose mtime is
+     * not newer than the one recorded for text already held is skipped: a
+     * stale copy can never replace a newer one. Mtimes loaded from disk carry
+     * no text, so the startup rebuild still fills them in.
+     */
     update(path: string, content: string, mtime?: number): void {
+        if (mtime !== undefined && this.content.has(path) && mtime <= (this.mtimes.get(path) ?? -Infinity)) return;
         if (this.knownPaths.has(path)) {
             this.clearBacklinks(path);
         }
