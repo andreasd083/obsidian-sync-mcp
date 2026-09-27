@@ -72,6 +72,46 @@ describe("SearchIndex", () => {
         assert.deepEqual(idx.getTags("note.md"), ["new"]);
     });
 
+    it("a stale write cannot replace a newer one (watcher vs pre-search catch-up)", () => {
+        const idx = new SearchIndex();
+        // The watcher applies the newer revision first...
+        idx.update("race.md", "---\ntags: [new]\n---\nnewer text", 200);
+        // ...then a catch-up batch fetched earlier delivers the older one.
+        idx.update("race.md", "---\ntags: [old]\n---\nolder text", 100);
+        assert.equal(idx.getContent("race.md"), "---\ntags: [new]\n---\nnewer text");
+        assert.equal(idx.getMtime("race.md"), 200);
+        assert.deepEqual(idx.getTags("race.md"), ["new"]);
+        assert.equal(idx.search({ terms: ["older text"] }).total, 0);
+        // A duplicate of the recorded revision is skipped too; a newer one wins.
+        idx.update("race.md", "same mtime, different text", 200);
+        assert.equal(idx.getContent("race.md"), "---\ntags: [new]\n---\nnewer text");
+        idx.update("race.md", "newest text", 300);
+        assert.equal(idx.getContent("race.md"), "newest text");
+        // A write without an mtime is not guarded; a removed note can come back with any mtime.
+        idx.update("race.md", "no mtime");
+        assert.equal(idx.getContent("race.md"), "no mtime");
+        idx.remove("race.md");
+        idx.update("race.md", "recreated", 50);
+        assert.equal(idx.getContent("race.md"), "recreated");
+    });
+
+    it("mtimes loaded from disk without text do not block the startup rebuild", async () => {
+        const dir = await mkdtemp(join(tmpdir(), "search-guard-"));
+        try {
+            const file = join(dir, "index.json");
+            const first = new SearchIndex(file);
+            first.update("kept.md", "text", 500);
+            await first.saveToDisk();
+            const second = new SearchIndex(file);
+            await second.loadFromDisk();
+            assert.equal(second.getContent("kept.md"), null);
+            second.update("kept.md", "text", 500);
+            assert.equal(second.getContent("kept.md"), "text");
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+
     it("extracts outgoing links", () => {
         const idx = new SearchIndex();
         idx.update("a.md", "See [[b]] and [[folder/c]]", 100);
