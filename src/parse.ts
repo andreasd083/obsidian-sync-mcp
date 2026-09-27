@@ -59,7 +59,7 @@ export function parseFrontmatterAndLinks(content: string): NoteMetadata {
     // but #y1984 is" — obsidian.md/help/tags), so code spans and fenced blocks
     // are masked out first and all-digit matches are dropped.
     for (const match of maskCode(content).matchAll(/(^|\s)#([\p{L}\p{N}_/-][\p{L}\p{M}\p{N}_/-]*)/gu)) {
-        if (/^\p{N}+$/u.test(match[2])) continue;
+        if (/^\p{Nd}+$/u.test(match[2])) continue;
         tags.add(match[2]);
     }
 
@@ -80,7 +80,8 @@ export function parseFrontmatterAndLinks(content: string): NoteMetadata {
  * Replace fenced code blocks (``` or ~~~, opener at line start with up to three
  * spaces of indent, closer of the same character and at least the same length;
  * an unclosed fence runs to the end) and inline code spans (a backtick run of
- * length n closes at the next run of exactly n; an unmatched run is literal)
+ * length n closes at the next run of exactly n within the same paragraph — a
+ * span never crosses a blank line; an unmatched run is literal)
  * with dots, so offsets are preserved and nothing inside can start or extend a
  * tag. Indented code blocks, %% comments and math are not masked.
  */
@@ -108,6 +109,11 @@ export function maskCode(content: string): string {
             out.push(".".repeat(line.length));
             continue;
         }
+        if (line.trim() === "") {
+            flushInline();
+            out.push(line);
+            continue;
+        }
         inline.push(line);
     }
     flushInline();
@@ -115,37 +121,34 @@ export function maskCode(content: string): string {
 }
 
 function maskInlineSpans(text: string): string {
-    let result = "";
-    let i = 0;
-    while (i < text.length) {
-        if (text[i] !== "`") {
-            result += text[i++];
-            continue;
-        }
+    // Collect backtick runs in one pass, then link each run to the next run of
+    // the same length (scanning right to left) so matching stays linear.
+    const runs: { at: number; len: number }[] = [];
+    for (let i = 0; i < text.length; ) {
+        if (text[i] !== "`") { i++; continue; }
         let n = 0;
         while (text[i + n] === "`") n++;
-        const run = "`".repeat(n);
-        // Find the next backtick run of exactly n.
-        let j = i + n;
-        let closeAt = -1;
-        while (j < text.length) {
-            const k = text.indexOf(run, j);
-            if (k === -1) break;
-            let m = 0;
-            while (text[k + m] === "`") m++;
-            if (m === n) { closeAt = k; break; }
-            j = k + m;
-        }
-        if (closeAt === -1) {
-            result += run;
-            i += n;
-            continue;
-        }
-        const span = text.slice(i, closeAt + n);
-        result += span.replace(/[^\n]/g, ".");
-        i = closeAt + n;
+        runs.push({ at: i, len: n });
+        i += n;
     }
-    return result;
+    const next: number[] = [];
+    const seen = new Map<number, number>();
+    for (let r = runs.length - 1; r >= 0; r--) {
+        next[r] = seen.get(runs[r].len) ?? -1;
+        seen.set(runs[r].len, r);
+    }
+    let result = "";
+    let from = 0;
+    for (let r = 0; r < runs.length; ) {
+        const c = next[r];
+        if (c === -1) { r++; continue; }
+        const start = runs[r].at;
+        const end = runs[c].at + runs[c].len;
+        result += text.slice(from, start) + text.slice(start, end).replace(/[^\n]/g, ".");
+        from = end;
+        r = c + 1;
+    }
+    return result + text.slice(from);
 }
 
 export function extractSnippet(content: string, query: string, context = 80): string {

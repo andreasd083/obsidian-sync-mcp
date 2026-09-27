@@ -116,6 +116,33 @@ Text #${nfdTag} here`;
         assert.deepEqual(result.tags, ["tag"]);
     });
 
+    it("does not let a stray backtick pair across a blank line", () => {
+        const sections = Array.from({ length: 20 }, (_, i) => `## Section ${i}\nSome notes here. #tag${i}`);
+        const content = [
+            "The user`s request needs follow up. #important",
+            ...sections,
+            "Circling back, thats it`s done. #wrapup",
+        ].join("\n\n");
+        const result = parseFrontmatterAndLinks(content);
+        assert.equal(result.tags.length, 22);
+        assert.ok(result.tags.includes("important"));
+        assert.ok(result.tags.includes("tag0") && result.tags.includes("tag19"));
+        assert.ok(result.tags.includes("wrapup"));
+    });
+
+    it("masks many unmatched backtick runs in linear time", () => {
+        const parts: string[] = [];
+        for (let n = 1, len = 0; len < 2_000_000; n++) {
+            parts.push("`".repeat(n) + " x ");
+            len += n + 3;
+        }
+        const content = parts.join("") + "#end";
+        const start = performance.now();
+        const result = parseFrontmatterAndLinks(content);
+        assert.ok(performance.now() - start < 2000);
+        assert.deepEqual(result.tags, ["end"]);
+    });
+
     it("does not let masking create or extend a tag", () => {
         const content = "`x`#glued and #tag`y` and `#a`#b";
         const result = parseFrontmatterAndLinks(content);
@@ -132,6 +159,12 @@ Text #${nfdTag} here`;
         // Obsidian counts "/" for that is checked against the app (uppdrag 71).
         assert.ok(result.tags.includes("2026/09"));
         assert.ok(result.tags.includes("x-1"));
+    });
+
+    it("keeps tags made of non-decimal number characters", () => {
+        const content = "Chapter #Ⅳ and footnote #² are tags, #42 is not";
+        const result = parseFrontmatterAndLinks(content);
+        assert.deepEqual(result.tags, ["Ⅳ", "²"]);
     });
 
     it("keeps frontmatter tags even when all-numeric", () => {
