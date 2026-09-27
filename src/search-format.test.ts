@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { describeHits, describeQuery, describeSync, formatServerTime, seqPrefix, type SyncStatus } from "./search-format.js";
+import { describeHits, describeQuery, describeSync, formatServerTime, resolveDisplayZone, seqPrefix, type SyncStatus } from "./search-format.js";
 
 /**
  * The index-status line is what a client uses to judge whether a hit can be
@@ -25,6 +25,23 @@ function status(overrides: Partial<SyncStatus> = {}): SyncStatus {
         ...overrides,
     };
 }
+
+describe("resolveDisplayZone", () => {
+    it("keeps a valid zone and falls back to UTC with a warning for an invalid one", (t) => {
+        const warn = t.mock.method(console, "warn", () => {});
+        assert.equal(resolveDisplayZone("Europe/Stockholm"), "Europe/Stockholm");
+        assert.equal(warn.mock.callCount(), 0);
+        assert.equal(resolveDisplayZone("Not/AZone"), "UTC");
+        assert.equal(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0].arguments[0]), /Not\/AZone/);
+        // The fallback keeps the status line working.
+        assert.match(formatServerTime(Date.UTC(2026, 8, 27, 8, 0), resolveDisplayZone("Not/AZone")), /\(08:00Z\)$/);
+    });
+
+    it("an empty value means the server's own zone", () => {
+        assert.equal(resolveDisplayZone("  "), resolveDisplayZone(undefined));
+    });
+});
 
 describe("formatServerTime", () => {
     it("prints local zone and UTC side by side, CET in winter", () => {
