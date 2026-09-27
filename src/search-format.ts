@@ -12,8 +12,24 @@
 
 import type { IndexState, SearchHit } from "./search.js";
 
+/**
+ * Validate a display zone once. An unknown zone makes Intl.DateTimeFormat
+ * throw, which would break every search_notes call, so it falls back to UTC
+ * with a logged warning instead.
+ */
+export function resolveDisplayZone(raw: string | undefined): string {
+    const zone = raw?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    try {
+        new Intl.DateTimeFormat("en-US", { timeZone: zone });
+        return zone;
+    } catch {
+        console.warn(`DISPLAY_TIMEZONE "${zone}" is not a valid IANA time zone; using UTC.`);
+        return "UTC";
+    }
+}
+
 /** Zone used for the human-readable half of the timestamp (default: the server's own zone). UTC is always printed beside it. */
-export const DISPLAY_TIMEZONE = process.env.DISPLAY_TIMEZONE?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+export const DISPLAY_TIMEZONE = resolveDisplayZone(process.env.DISPLAY_TIMEZONE);
 
 export interface SyncStatus {
     /** "couchdb" when a catch-up ran (or was attempted) before the search; "local" for a VAULT_PATH vault. */
