@@ -61,3 +61,34 @@ test("cleanSearchTerms trims, drops empty terms and clamps to SEARCH_MAX_TERMS",
     assert.equal(clean.length, SEARCH_MAX_TERMS);
     assert.equal(clean[0], "t0", "empty terms are dropped before clamping");
 });
+
+function captureWith(stamp: any): any[] {
+    const tools: any[] = [];
+    const server = { addTool: (tool: any) => tools.push(tool) };
+    registerTools(server as any, {} as any, {} as any, "vault", false, null, undefined, stamp);
+    return tools;
+}
+
+test("without STAMP_FIELDS write_note and edit_note have no by/mechanical parameters", () => {
+    for (const name of ["write_note", "edit_note"]) {
+        const tool = captureWith(null).find((t) => t.name === name);
+        assert.equal(tool.parameters.shape.by, undefined);
+        assert.equal(tool.parameters.shape.mechanical, undefined);
+    }
+});
+
+test("with STAMP_FIELDS, by is required and limited to the configured values", () => {
+    const stamp = { dateField: "senast_ändrad", byField: "senast_av", byValues: ["desktop", "code-vps"], folders: null, timeZone: "UTC" };
+    for (const name of ["write_note", "edit_note"]) {
+        const tool = captureWith(stamp).find((t) => t.name === name);
+        const base = { path: "a.md", content: "x" };
+        assert.equal(tool.parameters.safeParse(base).success, false, `${name} without by is rejected`);
+        assert.equal(tool.parameters.safeParse({ ...base, by: "other" }).success, false, `${name} with unknown by is rejected`);
+        assert.equal(tool.parameters.safeParse({ ...base, by: "desktop" }).success, true);
+        assert.equal(tool.parameters.safeParse({ ...base, by: "desktop", mechanical: true }).success, true);
+        const firstLine = String(tool.description).split(". ")[0];
+        assert.ok(!firstLine.includes("senast_"), "first sentence unchanged");
+    }
+    const move = captureWith(stamp).find((t) => t.name === "move_note");
+    assert.equal(move.parameters.shape.by, undefined, "move_note never stamps");
+});

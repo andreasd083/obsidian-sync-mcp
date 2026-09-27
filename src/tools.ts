@@ -6,6 +6,7 @@ import type { SearchIndex } from "./search.js";
 import { isPathWritable } from "./write-scope.js";
 import { describeListing, describeNoMatch } from "./list-format.js";
 import { describeHits, describeQuery, describeSync, type SyncStatus } from "./search-format.js";
+import { applyStamp, todayIn, type StampConfig } from "./stamp.js";
 
 const debugLogging = process.env.LOG_LEVEL === "debug";
 
@@ -47,6 +48,7 @@ export function registerTools(
     readOnly = false,
     writeFolders: string[] | null = null,
     syncBeforeSearch?: SyncBeforeSearch,
+    stamp: StampConfig | null = null,
 ) {
     if (readOnly) {
         console.log(`READ_ONLY mode: write tools disabled (${WRITE_TOOLS.join(", ")}).`);
@@ -58,6 +60,39 @@ export function registerTools(
         : "";
     const denyWrite = (path: string) =>
         `Write access denied: '${path}' is outside the writable folders (${writeFolders!.map((f) => f + "/").join(", ")}).`;
+    if (stamp && !readOnly) {
+        console.log(`STAMP_FIELDS: write_note/edit_note set ${stamp.dateField} and ${stamp.byField}` +
+            (stamp.folders ? ` inside ${stamp.folders.map((f) => f + "/").join(", ")}` : "") + ".");
+    }
+    // Stamping parameters, present only when STAMP_FIELDS is configured. `by` is then
+    // required on every content write, so a surface cannot forget to say who it is.
+    const stampParams = stamp
+        ? {
+              by: (stamp.byValues ? z.enum(stamp.byValues) : z.string().min(1)).describe(
+                  `Who writes: the value set in ${stamp.byField}. Required.`,
+              ),
+              mechanical: z
+                  .boolean()
+                  .optional()
+                  .describe(
+                      `Set true for a content-neutral change (tag fix, path rewrite, formatting): ${stamp.dateField} and ${stamp.byField} are then left untouched.`,
+                  ),
+          }
+        : {};
+    const stampNote = stamp
+        ? ` Sets ${stamp.dateField} and ${stamp.byField} in the frontmatter unless mechanical is true or the content itself changes them.`
+        : "";
+    /** Stamp `updated` if configured; returns the text to write and a report line ("" when off). */
+    const stampFor = (path: string, existing: string | null, updated: string, args: any) => {
+        if (!stamp) return { content: updated, report: "" };
+        return applyStamp(path, existing, updated, {
+            by: args.by,
+            mechanical: args.mechanical,
+            today: todayIn(stamp.timeZone),
+            config: stamp,
+        });
+    };
+    const withReport = (text: string, report: string) => (report ? `${text}\n${report}` : text);
     const _addTool = server.addTool.bind(server);
     server.addTool = (tool: any) => {
         const original = tool.execute;
@@ -91,20 +126,24 @@ export function registerTools(
     if (!readOnly) server.addTool({
         name: "write_note",
         description:
-            "Write or update a note in the Obsidian vault. Creates the note if it doesn't exist. Replaces the entire content if it does — read first if you need to preserve existing content." + writeScopeNote,
+            "Write or update a note in the Obsidian vault. Creates the note if it doesn't exist. Replaces the entire content if it does — read first if you need to preserve existing content." + writeScopeNote + stampNote,
         parameters: z.object({
             path: z.string().describe("Vault-relative path to the note, e.g. 'daily/2026-03-23.md'"),
             content: z.string().describe("Full markdown content for the note"),
+            ...stampParams,
         }),
-        execute: async ({ path, content }) => {
+        execute: async (args: any) => {
+            const { path } = args;
             if (!isPathWritable(path, writeFolders)) return denyWrite(path);
+            const existing = stamp ? await vault.readNote(path) : null;
+            const { content, report } = stampFor(path, existing, args.content, args);
             const ok = await vault.writeNote(path, content);
             if (!ok) {
                 return `Failed to write note: ${path}`;
             }
             searchIndex.update(path, content, Date.now());
             const deepLink = makeDeepLink(vaultName, path);
-            return `Note saved: ${path}\n[Open in Obsidian](${deepLink})`;
+            return withReport(`Note saved: ${path}\n[Open in Obsidian](${deepLink})`, report);
         },
     });
 
@@ -314,7 +353,7 @@ export function registerTools(
     if (!readOnly) server.addTool({
         name: "edit_note",
         description:
-            "Edit a note without rewriting it. Use 'append' (default) to add content to the end, 'prepend' to add after frontmatter, or 'replace' to swap old_text with new content. For replace, the old_text must match exactly once." + writeScopeNote,
+            "Edit a note without rewriting it. Use 'append' (default) to add content to the end, 'prepend' to add after frontmatter, or 'replace' to swap old_text with new content. For replace, the old_text must match exactly once." + writeScopeNote + stampNote,
         parameters: z.object({
             path: z.string().describe("Vault-relative path to the note, e.g. 'daily/2026-03-25.md'"),
             content: z.string().describe("Text to append, prepend, or use as replacement for old_text"),
@@ -326,8 +365,10 @@ export function registerTools(
                 .string()
                 .optional()
                 .describe("Required for replace operation. Exact text to find and replace. Must match exactly once."),
+            ...stampParams,
         }),
-        execute: async ({ path, content: newContent, operation, old_text }) => {
+        execute: async (args: any) => {
+            const { path, content: newContent, operation, old_text } = args;
             if (!isPathWritable(path, writeFolders)) return denyWrite(path);
             const existing = await vault.readNote(path);
             if (existing === null) {
@@ -363,13 +404,14 @@ export function registerTools(
                 updated = existing.endsWith("\n") ? existing + newContent : existing + "\n" + newContent;
             }
 
-            const ok = await vault.writeNote(path, updated);
+            const stamped = stampFor(path, existing, updated, args);
+            const ok = await vault.writeNote(path, stamped.content);
             if (!ok) {
                 return `Failed to edit note: ${path}`;
             }
-            searchIndex.update(path, updated, Date.now());
+            searchIndex.update(path, stamped.content, Date.now());
             const deepLink = makeDeepLink(vaultName, path);
-            return `Note edited (${op}): ${path}\n[Open in Obsidian](${deepLink})`;
+            return withReport(`Note edited (${op}): ${path}\n[Open in Obsidian](${deepLink})`, stamped.report);
         },
     });
 

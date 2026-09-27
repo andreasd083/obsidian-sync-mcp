@@ -12,6 +12,8 @@ import { readOnlyVault } from "./vault-readonly.js";
 import { registerTools } from "./tools.js";
 import { parseWriteFolders } from "./write-scope.js";
 import { redactCredentials, describeError, describeLogMessage } from "./redact.js";
+import { parseStampConfig } from "./stamp.js";
+import { DISPLAY_TIMEZONE } from "./search-format.js";
 
 // Suppress livesync-commonlib logs that expose vault file paths in production.
 // Set LOG_LEVEL=debug to see all library logs during development.
@@ -42,6 +44,7 @@ const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
 const READ_ONLY = process.env.READ_ONLY === "true";
 const WRITE_FOLDERS = parseWriteFolders(process.env.WRITE_FOLDERS);
+const STAMP = parseStampConfig(process.env, process.env.STAMP_TIMEZONE?.trim() || DISPLAY_TIMEZONE);
 
 // Extra instructions appended to the MCP `instructions` string.
 // File wins if both are set (loud warning); missing file is fatal.
@@ -371,7 +374,7 @@ if (AUTH_TOKEN) {
 }
 
 // --- Tools ---
-registerTools(server, vault, searchIndex, VAULT_NAME, READ_ONLY, WRITE_FOLDERS, COUCHDB_URL ? syncBeforeSearch : undefined);
+registerTools(server, vault, searchIndex, VAULT_NAME, READ_ONLY, WRITE_FOLDERS, COUCHDB_URL ? syncBeforeSearch : undefined, STAMP);
 
 // --- Graceful shutdown ---
 async function shutdown() {
