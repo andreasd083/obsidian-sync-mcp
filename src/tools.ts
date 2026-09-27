@@ -13,6 +13,13 @@ const debugLogging = process.env.LOG_LEVEL === "debug";
 export type SyncBeforeSearch = () => Promise<{ unreadable: number; error?: string }>;
 
 export const SEARCH_MAX_HITS = 20;
+/** Each term is one more regex pass over every note (synchronous), so the count is capped. */
+export const SEARCH_MAX_TERMS = 20;
+
+/** Trim, drop empty terms, and clamp to SEARCH_MAX_TERMS — a backstop behind the schema's .max(). */
+export function cleanSearchTerms(terms: string[] | undefined): string[] {
+    return (terms ?? []).map((t) => t.trim()).filter((t) => t.length > 0).slice(0, SEARCH_MAX_TERMS);
+}
 
 const WRITE_TOOLS = ["write_note", "edit_note", "delete_note", "move_note"] as const;
 
@@ -198,8 +205,9 @@ export function registerTools(
         parameters: z.object({
             terms: z
                 .array(z.string())
+                .max(SEARCH_MAX_TERMS)
                 .optional()
-                .describe("Case-insensitive substrings; a note matches when any of them occurs. E.g. ['drag i kanban', 'kanban', 'labels på kategori']."),
+                .describe(`Case-insensitive substrings, at most ${SEARCH_MAX_TERMS}; a note matches when any of them occurs. E.g. ['drag i kanban', 'kanban', 'labels på kategori'].`),
             folder: z
                 .string()
                 .optional()
@@ -218,7 +226,7 @@ export function registerTools(
                 .describe(`Max hits to return, default and maximum ${SEARCH_MAX_HITS}.`),
         }),
         execute: async ({ terms, folder, tag, modified_after, limit }) => {
-            const cleanTerms = (terms ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+            const cleanTerms = cleanSearchTerms(terms);
             if (cleanTerms.length === 0) {
                 return "Give at least one term.";
             }
