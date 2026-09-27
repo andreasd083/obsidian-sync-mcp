@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { registerTools, READ_NOTE_MAX_RESULT_SIZE_CHARS } from "./tools.js";
+import { registerTools, READ_NOTE_MAX_RESULT_SIZE_CHARS, SEARCH_MAX_TERMS, cleanSearchTerms } from "./tools.js";
 
 function captureTools(): { name: string; _meta?: Record<string, unknown> }[] {
     const tools: { name: string; _meta?: Record<string, unknown> }[] = [];
@@ -29,4 +29,20 @@ test("search_notes is registered with a whole first sentence under 75 characters
     assert.ok(firstLine.length < 75, `first line is ${firstLine.length} chars`);
     assert.ok(firstLine.endsWith("."), "first line ends with a period");
     assert.equal(tool._meta, undefined);
+});
+
+test("search_notes rejects more than SEARCH_MAX_TERMS terms at the schema", () => {
+    const tool = captureTools().find((t) => t.name === "search_notes") as any;
+    const terms = (n: number) => Array.from({ length: n }, (_, i) => `t${i}`);
+    assert.equal(tool.parameters.safeParse({ terms: terms(SEARCH_MAX_TERMS) }).success, true);
+    assert.equal(tool.parameters.safeParse({ terms: terms(SEARCH_MAX_TERMS + 1) }).success, false);
+});
+
+test("cleanSearchTerms trims, drops empty terms and clamps to SEARCH_MAX_TERMS", () => {
+    assert.deepEqual(cleanSearchTerms(undefined), []);
+    assert.deepEqual(cleanSearchTerms([" a ", "", "  ", "b"]), ["a", "b"]);
+    const many = Array.from({ length: 50 }, (_, i) => `t${i}`);
+    const clean = cleanSearchTerms(["", ...many]);
+    assert.equal(clean.length, SEARCH_MAX_TERMS);
+    assert.equal(clean[0], "t0", "empty terms are dropped before clamping");
 });
