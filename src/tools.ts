@@ -15,10 +15,15 @@ export type SyncBeforeSearch = () => Promise<{ unreadable: number; error?: strin
 export const SEARCH_MAX_HITS = 20;
 /** Each term is one more regex pass over every note (synchronous), so the count is capped. */
 export const SEARCH_MAX_TERMS = 20;
+/** Each term is compiled into a regex; a very long one overflows the stack (~10 KB with flags iu) or blocks the event loop, so its length is capped. */
+export const SEARCH_MAX_TERM_LENGTH = 200;
 
-/** Trim, drop empty terms, and clamp to SEARCH_MAX_TERMS — a backstop behind the schema's .max(). */
+/** Trim, drop empty terms, cut each to SEARCH_MAX_TERM_LENGTH and clamp to SEARCH_MAX_TERMS — a backstop behind the schema's .max(). */
 export function cleanSearchTerms(terms: string[] | undefined): string[] {
-    return (terms ?? []).map((t) => t.trim()).filter((t) => t.length > 0).slice(0, SEARCH_MAX_TERMS);
+    return (terms ?? [])
+        .map((t) => t.trim().slice(0, SEARCH_MAX_TERM_LENGTH))
+        .filter((t) => t.length > 0)
+        .slice(0, SEARCH_MAX_TERMS);
 }
 
 const WRITE_TOOLS = ["write_note", "edit_note", "delete_note", "move_note"] as const;
@@ -204,10 +209,10 @@ export function registerTools(
             "the server time (local zone and UTC), its age in minutes, how many notes carry content, and any documents that could not be read.",
         parameters: z.object({
             terms: z
-                .array(z.string())
+                .array(z.string().max(SEARCH_MAX_TERM_LENGTH))
                 .max(SEARCH_MAX_TERMS)
                 .optional()
-                .describe(`Case-insensitive substrings, at most ${SEARCH_MAX_TERMS}; a note matches when any of them occurs. E.g. ['drag i kanban', 'kanban', 'labels på kategori'].`),
+                .describe(`Case-insensitive substrings, at most ${SEARCH_MAX_TERMS} of at most ${SEARCH_MAX_TERM_LENGTH} characters each; a note matches when any of them occurs. E.g. ['drag i kanban', 'kanban', 'labels på kategori'].`),
             folder: z
                 .string()
                 .optional()
