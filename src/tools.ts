@@ -18,6 +18,8 @@ export const SEARCH_MAX_HITS = 20;
 export const SEARCH_MAX_TERMS = 20;
 /** Each term is compiled into a regex; a very long one overflows the stack (~10 KB with flags iu) or blocks the event loop, so its length is capped. */
 export const SEARCH_MAX_TERM_LENGTH = 200;
+/** Fork (mittnav): a regex is compiled once per search; its length is capped like a term's. */
+export const SEARCH_MAX_REGEX_LENGTH = 200;
 
 /** Trim, drop empty terms, cut each to SEARCH_MAX_TERM_LENGTH and clamp to SEARCH_MAX_TERMS — a backstop behind the schema's .max(). */
 export function cleanSearchTerms(terms: string[] | undefined): string[] {
@@ -242,11 +244,11 @@ export function registerTools(
     server.addTool({
         name: "search_notes",
         description:
-            "Search note contents for terms, case-insensitive.\n" +
+            "Search note contents for terms or a regex, case-insensitive.\n" +
             "Paths and frontmatter titles are searched first and such hits rank on top, marked [path/title]; content hits follow. " +
             "Returns paths with one context line each, never the note body: call read_note on a hit before relying on it. " +
             "Give `terms` (a note matches when ANY term occurs — OR, so list synonyms, field names and other-language wordings; a term may contain spaces; ranked by how many terms match) " +
-            "Filters: folder, tag, modified_after. " +
+            "or `regex` (flags iu), not both. Filters: folder, tag, modified_after. " +
             "The first line of every response is the index status: the CouchDB sequence the index is caught up with after a catch-up run just before the search, " +
             "the server time (local zone and UTC), its age in minutes, how many notes carry content, and any documents that could not be read.",
         parameters: z.object({
@@ -255,6 +257,11 @@ export function registerTools(
                 .max(SEARCH_MAX_TERMS)
                 .optional()
                 .describe(`Case-insensitive substrings, at most ${SEARCH_MAX_TERMS} of at most ${SEARCH_MAX_TERM_LENGTH} characters each; a note matches when any of them occurs. E.g. ['drag i kanban', 'kanban', 'labels på kategori'].`),
+            regex: z
+                .string()
+                .max(SEARCH_MAX_REGEX_LENGTH)
+                .optional()
+                .describe("A regular expression (JavaScript syntax, flags iu) instead of terms. E.g. 'timeBlockSection|time_block_section'."),
             folder: z
                 .string()
                 .optional()
@@ -272,10 +279,24 @@ export function registerTools(
                 .optional()
                 .describe(`Max hits to return, default and maximum ${SEARCH_MAX_HITS}.`),
         }),
-        execute: async ({ terms, folder, tag, modified_after, limit }) => {
+        execute: async ({ terms, regex, folder, tag, modified_after, limit }) => {
             const cleanTerms = cleanSearchTerms(terms);
-            if (cleanTerms.length === 0) {
-                return "Give at least one term.";
+            if (regex !== undefined && cleanTerms.length > 0) {
+                return "Give either terms or regex, not both.";
+            }
+            if (regex === undefined && cleanTerms.length === 0) {
+                return "Give at least one term, or a regex.";
+            }
+            let compiled: RegExp | undefined;
+            if (regex !== undefined) {
+                if (regex.length > SEARCH_MAX_REGEX_LENGTH) {
+                    return `Regex too long (${regex.length} characters, max ${SEARCH_MAX_REGEX_LENGTH}).`;
+                }
+                try {
+                    compiled = new RegExp(regex, "iu");
+                } catch (err) {
+                    return `Invalid regex: ${err instanceof Error ? err.message : String(err)}`;
+                }
             }
             let modifiedAfter: number | undefined;
             if (modified_after) {
@@ -297,8 +318,8 @@ export function registerTools(
                 unreadable: sync.unreadable,
                 error: sync.error,
             };
-            const { hits, total } = searchIndex.search({ terms: cleanTerms, folder, tag, modifiedAfter, limit: cap });
-            const query = describeQuery(cleanTerms);
+            const { hits, total } = searchIndex.search({ terms: cleanTerms, regex: compiled, folder, tag, modifiedAfter, limit: cap });
+            const query = describeQuery(cleanTerms, regex);
             return `${describeSync(status)}\n${describeHits(hits, total, query, (p) => makeDeepLink(vaultName, p))}`;
         },
     });

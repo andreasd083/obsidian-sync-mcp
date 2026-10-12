@@ -108,6 +108,9 @@ describe("describeQuery / describeHits", () => {
     it("quotes terms", () => {
         assert.equal(describeQuery(["drag i kanban", "kanban"]), '"drag i kanban", "kanban"');
     });
+    it("marks a regex (fork: mittnav)", () => {
+        assert.equal(describeQuery([], "a|b"), "regex /a|b/iu");
+    });
     it("zero hits say what was searched", () => {
         assert.equal(describeHits([], 0, '"x"', link), 'No notes match "x".');
     });

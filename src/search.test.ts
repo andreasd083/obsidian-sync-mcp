@@ -339,6 +339,19 @@ describe("SearchIndex content search (search_notes)", () => {
         assert.equal(hits[0].nameHit, true);
     });
 
+    it("regex searches with flags iu (fork: mittnav)", () => {
+        const { hits } = seeded().search({ regex: /update_category_or_project|KANBAN-VY/iu });
+        assert.deepEqual(hits.map((h) => h.path).sort(), ["marvin/labels.md", "uppdrag/fix.md"]);
+    });
+
+    it("regex is applied to path/title as well (fork: mittnav)", () => {
+        const idx = seeded();
+        idx.update("MCP TEST/MCP TEST.md", "nothing", 50);
+        const { hits } = idx.search({ regex: /^mcp test\//i });
+        assert.deepEqual(hits.map((h) => h.path), ["MCP TEST/MCP TEST.md"]);
+        assert.equal(hits[0].nameHit, true);
+    });
+
     it("a term counts once even when it hits both name and content", () => {
         const idx = new SearchIndex();
         idx.update("kanban/kanban.md", "kanban kanban", 1);

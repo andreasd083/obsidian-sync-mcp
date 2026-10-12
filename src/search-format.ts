@@ -108,7 +108,8 @@ export function describeSync(s: SyncStatus, timeZone: string = DISPLAY_TIMEZONE)
 }
 
 /** What was searched, for the second line. */
-export function describeQuery(terms: string[]): string {
+export function describeQuery(terms: string[], regex?: string): string {
+    if (regex !== undefined) return `regex /${regex}/iu`;
     return terms.map((t) => `"${t}"`).join(", ");
 }
 

@@ -42,6 +42,8 @@ export type IndexState = "building" | "ready" | "failed";
 export interface SearchQuery {
     /** Case-insensitive substrings; a note matches when ANY term occurs (OR). A term may contain spaces. */
     terms?: string[];
+    /** Alternative to `terms`: one regular expression (caller compiles it, flags "iu"). */
+    regex?: RegExp;
     folder?: string;
     tag?: string;
     /** Only notes with mtime >= this (ms since epoch). */
@@ -241,7 +243,16 @@ export class SearchIndex {
             let nameHit = false;
             let anchor = -1;
             let anchorLen = 1;
-            {
+            if (q.regex) {
+                nameHit = q.regex.test(name);
+                const m = q.regex.exec(entry);
+                if (!nameHit && !m) continue;
+                matched = 1;
+                if (m) {
+                    anchor = m.index;
+                    anchorLen = Math.max(1, m[0].length);
+                }
+            } else {
                 for (const t of terms) {
                     const inName = nameLower.includes(t.text);
                     const i = entry.search(t.re);
